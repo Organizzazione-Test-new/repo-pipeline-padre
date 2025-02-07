@@ -1,0 +1,12 @@
+trigger: none
+pr: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+- stage: ParentStage
+  jobs:
+  - job: RunParentJob
+    steps:
+    - script: echo "Pipeline padre eseguita con successo"
