@@ -11,7 +11,8 @@ variables:
         "name": "AlfrescoClient", 
         "definitionId": 2, 
         "artifactName": "QA-Reports", 
-        "targetFolder": "$(Build.ArtifactStagingDirectory)/AlfrescoClient"},
+        "targetFolder": "$(Build.ArtifactStagingDirectory)/AlfrescoClient"
+      }
     ]
   pollInterval: 10
 
@@ -87,7 +88,7 @@ stages:
                 artifactName=$(echo $row | jq -r '.artifactName')
                 targetFolder=$(echo $row | jq -r '.targetFolder')
                 buildIdVar="${name}_buildId"
-                buildId=$(echo $(buildIdVar) | sed 's/[^0-9]*//g')
+                buildId=$(echo ${!buildIdVar} | sed 's/[^0-9]*//g')
                 echo "Scarico $artifactName da $name (buildId: ${!buildIdVar}) in $targetFolder"
                 # Chiamata REST non necessaria, utilizziamo il task predefinito
                 # Il task DownloadPipelineArtifact non supporta loop, quindi qui dovrai chiamarlo per ogni pipeline
