@@ -4,9 +4,117 @@ pr: none
 pool:
   vmImage: 'ubuntu-latest'
 
+variables:
+  childPipelines: |
+    [
+      {
+        "name": "AlfrescoClient", 
+        "definitionId": 2, 
+        "artifactName": "QA-Reports", 
+        "targetFolder": "$(Build.ArtifactStagingDirectory)/AlfrescoClient"
+      }
+    ]
+  pollInterval: 10
+
 stages:
-- stage: ParentStage
-  jobs:
-  - job: RunParentJob
-    steps:
-    - script: echo "Pipeline padre eseguita con successo"
+  - stage: OrchestrateAndCollect
+    jobs:
+      - job: TriggerAndWait
+        steps:
+          - script: |
+              # Installa jq se non presente
+              if ! command -v jq &> /dev/null; then
+                  echo "jq non trovato, installazione..."
+                  sudo apt-get update && sudo apt-get install -y jq
+              fi
+              
+              echo "Inizio trigger e attesa per le pipeline figlie..."
+
+              # Leggi la lista delle pipeline figlie
+              CHILD_PIPELINES=$(echo '$(childPipelines)' | jq -c '.[]')
+              declare -A buildIds
+              
+              # Trigger parallelo delle pipeline figlie
+              for row in ${CHILD_PIPELINES}; do
+                definitionId=$(echo $row | jq -r '.definitionId')
+                name=$(echo $row | jq -r '.name')
+                echo "Triggering $name (definitionId: $definitionId)..."
+                response=$(curl -s -u :$(AccessToken) -X POST \
+                  "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds?api-version=6.0" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"definition\": { \"id\": $definitionId }}")
+                buildId=$(echo $response | jq -r .id)
+                if [ "$buildId" = "null" ]; then
+                  echo "Errore nel trigger di $name"
+                  exit 1
+                fi
+                echo "$name triggered with buildId: $buildId"
+                buildIds["$name"]=$buildId
+              done
+
+              # Attesa parallela per il completamento
+              for name in "${!buildIds[@]}"; do
+                buildId=${buildIds[$name]}
+                (
+                  echo "Attendo il completamento di $name (buildId: $buildId)..."
+                  status=""
+                  while [ "$status" != "completed" ]; do
+                    status=$(curl -s -u :$(AccessToken) "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds/$buildId?api-version=6.0" | jq -r .status)
+                    echo "$name - Stato: $status"
+                    if [ "$status" != "completed" ]; then
+                      sleep $(pollInterval)
+                    fi
+                  done
+                  echo "$name completata."
+                ) &
+              done
+              wait
+              echo "Tutte le pipeline figlie sono state completate."
+
+              # Salva le buildId in output per i successivi step
+              for name in "${!buildIds[@]}"; do
+                echo "##vso[task.setvariable variable=${name}_buildId]${buildIds[$name]}"
+              done
+            displayName: "Trigger e attesa pipeline figlie"
+            env:
+              AccessToken: $(AccessToken)
+
+          # Scarica gli artifact per ogni pipeline figlia utilizzando la lista
+          - script: |
+              echo "Scarico gli artifact delle pipeline figlie..."
+              CHILD_PIPELINES=$(echo '$(childPipelines)' | jq -c '.[]')
+              for row in ${CHILD_PIPELINES}; do
+                name=$(echo $row | jq -r '.name')
+                artifactName=$(echo $row | jq -r '.artifactName')
+                targetFolder=$(echo $row | jq -r '.targetFolder')
+                buildIdVar="${name}_buildId"
+                buildId=$(echo ${!buildIdVar} | sed 's/[^0-9]*//g')
+                echo "Scarico $artifactName da $name (buildId: ${!buildIdVar}) in $targetFolder"
+                # Chiamata REST non necessaria, utilizziamo il task predefinito
+                # Il task DownloadPipelineArtifact non supporta loop, quindi qui dovrai chiamarlo per ogni pipeline
+                # Per questo esempio, mostriamo solo lo script di logging. In uno scenario reale potresti:
+                #   - Avere job separati per ogni download, oppure
+                #   - Chiamare l'API REST per scaricare l'artifact in uno script personalizzato.
+              done
+            displayName: "Scarica artifact dalle pipeline figlie"
+            # Nota: per scaricare in automatico gli artifact in loop, potrebbe essere necessario dividere in job separati
+            # o utilizzare uno script avanzato che richiama l'API di download.
+          
+          # Unisci i report
+          - script: |
+              mkdir -p $(Build.ArtifactStagingDirectory)/final-report
+              echo "Unisco i report..."
+              # Un esempio semplice se i report sono file di testo:
+              for folder in $(Build.ArtifactStagingDirectory)/child*; do
+                if [ -d "$folder" ]; then
+                  cat $folder/**/*.txt >> $(Build.ArtifactStagingDirectory)/final-report/qa-report-completo.txt
+                fi
+              done
+            displayName: "Unisci report QA"
+
+          # Pubblica il report finale
+          - task: PublishBuildArtifacts@1
+            displayName: "Pubblica report QA finale"
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)/final-report'
+              artifactName: 'Final-QA-Report'
