@@ -10,3 +10,33 @@ stages:
   - job: RunParentJob
     steps:
     - script: echo "Pipeline padre eseguita con successo"
+
+- stage: Collect_Artifacts
+  displayName: "Raccogli Artifact Figli"
+  dependsOn: ParentStage
+  condition: succeeded()
+  jobs:
+  - job: CollectReports
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - task: DownloadBuildArtifacts@0
+        displayName: "Scarica Artifact da Pipeline Figlie"
+        inputs:
+          buildType: 'specific'
+          project: '$(System.TeamProject)'
+          pipeline: 'Organizzazione-Test-new.alfresco-client'
+          downloadType: 'specific'
+          artifactName: 'QA-Reports'
+          downloadPath: '$(Build.ArtifactStagingDirectory)/alfresco-client'
+
+      - script: |
+          mkdir -p $(Build.ArtifactStagingDirectory)/final-report
+          cat $(Build.ArtifactStagingDirectory)/alfresco-client/*.txt >> $(Build.ArtifactStagingDirectory)/final-report/qa-report-completo.txt
+        displayName: "Unisci Report QA"
+
+      - task: PublishBuildArtifacts@1
+        displayName: "Pubblica Report Finale"
+        inputs:
+          pathToPublish: '$(Build.ArtifactStagingDirectory)/final-report'
+          artifactName: 'Final-QA-Report'
