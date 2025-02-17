@@ -39,7 +39,7 @@ stages:
                 definitionId=$(echo $row | jq -r '.definitionId')
                 name=$(echo $row | jq -r '.name')
                 echo "Triggering $name (definitionId: $definitionId)..."
-                response=$(curl -s -u :$(System.AccessToken) -X POST \
+                response=$(curl -s -u :$(AccessToken) -X POST \
                   "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds?api-version=6.0" \
                   -H "Content-Type: application/json" \
                   -d "{\"definition\": { \"id\": $definitionId }}")
@@ -59,7 +59,7 @@ stages:
                   echo "Attendo il completamento di $name (buildId: $buildId)..."
                   status=""
                   while [ "$status" != "completed" ]; do
-                    status=$(curl -s -u :$(System.AccessToken) "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds/$buildId?api-version=6.0" | jq -r .status)
+                    status=$(curl -s -u :$(AccessToken) "$(System.CollectionUri)$(System.TeamProject)/_apis/build/builds/$buildId?api-version=6.0" | jq -r .status)
                     echo "$name - Stato: $status"
                     if [ "$status" != "completed" ]; then
                       sleep $(pollInterval)
@@ -77,7 +77,7 @@ stages:
               done
             displayName: "Trigger e attesa pipeline figlie"
             env:
-              System.AccessToken: $(System.AccessToken)
+              AccessToken: $(AccessToken)
 
           # Scarica gli artifact per ogni pipeline figlia utilizzando la lista
           - script: |
